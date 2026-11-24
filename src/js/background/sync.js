@@ -62,7 +62,7 @@ const sync = {
       const allSyncStorage = await this.get();
       const sites = {};
       for (const storageKey of Object.keys(allSyncStorage)) {
-        if (storageKey.includes("siteContainerMap@@_")) {
+        if (storageKey.startsWith(assignManager.storageArea.SITE_KEY_PREFIX)) {
           sites[storageKey] = allSyncStorage[storageKey];
         }
       }
@@ -491,7 +491,10 @@ async function reconcileSiteAssignments() {
     await sync.storageArea.getAssignedSites();
   const deletedSiteList = 
     await sync.storageArea.getDeletedSiteList();
-  for(const siteStoreKey of deletedSiteList) {
+  const deletedLocalKeys = deletedSiteList.map(
+    (siteStoreKey) => assignManager.storageArea.getSiteStoreKey(siteStoreKey)
+  );
+  for(const siteStoreKey of deletedLocalKeys) {
     if (Object.prototype.hasOwnProperty.call(assignedSitesLocal,siteStoreKey)) {
       await assignManager
         .storageArea
@@ -501,6 +504,14 @@ async function reconcileSiteAssignments() {
 
   for(const urlKey of Object.keys(assignedSitesFromSync)) {
     const assignedSite = assignedSitesFromSync[urlKey];
+    // Old-format keys are imported under their upgraded key and then
+    // dropped from sync, so a later delete of the upgraded key sticks.
+    const siteStoreKey = assignManager.storageArea.getSiteStoreKey(urlKey);
+    const isLegacyKey = siteStoreKey !== urlKey;
+    if (isLegacyKey && deletedLocalKeys.includes(siteStoreKey)) {
+      await sync.storageArea.area.remove(urlKey);
+      continue;
+    }
     try{
       if (assignedSite.identityMacAddonUUID) {
       // Sync is truth.
@@ -512,6 +523,7 @@ async function reconcileSiteAssignments() {
         }
 
         await setAssignmentWithUUID(assignedSite, urlKey);
+        if (isLegacyKey) await sync.storageArea.area.remove(urlKey);
         continue;
       }
     } catch {

@@ -8,15 +8,90 @@ window.assignManager = {
   storageArea: {
     area: browser.storage.local,
     exemptedTabs: {},
+    SITE_KEY_PREFIX: "siteContainerMap@@_",
+
+    // A key is the hostname, then ":" and the port when the URL has a
+    // non-default port for its scheme. Hostnames never contain ":" outside
+    // IPv6 brackets, so the last ":" before trailing digits is the separator.
+    // Older versions stored "host:81" as "host81", so a hostname ending in a
+    // digit always keeps the ":" (as "host:") to stay distinct from those keys.
+    siteStoreKeyFor(hostname, port) {
+      if (port || /\d$/.test(hostname)) {
+        return `${this.SITE_KEY_PREFIX}${hostname}:${port}`;
+      }
+      return `${this.SITE_KEY_PREFIX}${hostname}`;
+    },
 
     getSiteStoreKey(pageUrlorUrlKey) {
-      if (pageUrlorUrlKey.includes("siteContainerMap@@_")) return pageUrlorUrlKey;
+      if (pageUrlorUrlKey.startsWith(this.SITE_KEY_PREFIX)) {
+        return this.upgradeLegacySiteStoreKey(pageUrlorUrlKey);
+      }
       const url = new window.URL(pageUrlorUrlKey);
-      const storagePrefix = "siteContainerMap@@_";
-      if (url.port === "80" || url.port === "443") {
-        return `${storagePrefix}${url.hostname}`;
-      } else {
-        return `${storagePrefix}${url.hostname}${url.port}`;
+      return this.siteStoreKeyFor(url.hostname, url.port);
+    },
+
+    // Returns null for a key in the old format whose port may have been
+    // glued onto the hostname, since its host cannot be read from it.
+    parseSiteStoreKey(siteStoreKey) {
+      const site = siteStoreKey.slice(this.SITE_KEY_PREFIX.length);
+      const match = /^(.*):(\d*)$/.exec(site);
+      if (match) {
+        return { hostname: match[1], port: match[2] };
+      }
+      if (/\d$/.test(site)) {
+        return null;
+      }
+      return { hostname: site, port: "" };
+    },
+
+    // Old-format keys ending in a digit are converted only when exactly one
+    // hostname and port could have produced them. Ambiguous ones, such as
+    // "10.0.0.123" (from 10.0.0.123, 10.0.0.12:3 or 10.0.0.1:23), are kept
+    // as they are and no URL resolves to them.
+    upgradeLegacySiteStoreKey(siteStoreKey) {
+      if (this.parseSiteStoreKey(siteStoreKey)) {
+        return siteStoreKey;
+      }
+      const site = siteStoreKey.slice(this.SITE_KEY_PREFIX.length);
+      const isCanonicalHostname = (hostname) => {
+        try {
+          return new window.URL(`http://${hostname}/`).hostname === hostname;
+        } catch {
+          return false;
+        }
+      };
+      const candidates = [];
+      if (isCanonicalHostname(site)) {
+        candidates.push([site, ""]);
+      }
+      for (let i = site.length - 1; i > 0 && /\d/.test(site[i]); i--) {
+        const hostname = site.slice(0, i);
+        const port = site.slice(i);
+        // Old keys dropped 80 and 443 and never stored a non-canonical port.
+        if (!/^(0|[1-9]\d{0,4})$/.test(port) || Number(port) > 65535
+            || port === "80" || port === "443") {
+          continue;
+        }
+        if (isCanonicalHostname(hostname)) {
+          candidates.push([hostname, port]);
+        }
+      }
+      if (candidates.length !== 1) {
+        return siteStoreKey;
+      }
+      return this.siteStoreKeyFor(...candidates[0]);
+    },
+
+    async upgradeLegacySiteStoreKeys() {
+      const siteConfigs = await this.area.get();
+      for (const siteStoreKey of Object.keys(siteConfigs)) {
+        if (!siteStoreKey.startsWith(this.SITE_KEY_PREFIX)) continue;
+        const upgradedKey = this.upgradeLegacySiteStoreKey(siteStoreKey);
+        if (upgradedKey === siteStoreKey) continue;
+        if (!(upgradedKey in siteConfigs)) {
+          await this.area.set({ [upgradedKey]: siteConfigs[siteStoreKey] });
+        }
+        await this.area.remove(siteStoreKey);
       }
     },
 
@@ -109,7 +184,7 @@ window.assignManager = {
       const sites = {};
       const siteConfigs = await this.area.get();
       for(const urlKey of Object.keys(siteConfigs)) {
-        if (urlKey.includes("siteContainerMap@@_")) {
+        if (urlKey.startsWith(this.SITE_KEY_PREFIX)) {
         // For some reason this is stored as string... lets check
         // them both as that
           if (!!userContextId &&
@@ -120,7 +195,11 @@ window.assignManager = {
           const site = siteConfigs[urlKey];
           // In hindsight we should have stored this
           // TODO file a follow up to clean the storage onLoad
-          site.hostname = urlKey.replace(/^siteContainerMap@@_/, "");
+          const parsed = this.parseSiteStoreKey(urlKey);
+          site.hostname = parsed
+            ? parsed.hostname
+            : urlKey.slice(this.SITE_KEY_PREFIX.length);
+          site.port = parsed ? parsed.port : "";
           sites[urlKey] = site;
         }
       }
@@ -136,7 +215,7 @@ window.assignManager = {
       const identitiesList = await browser.contextualIdentities.query({});
       const macConfigs = await this.area.get();
       for(const configKey of Object.keys(macConfigs)) {
-        if (configKey.includes("siteContainerMap@@_")) {
+        if (configKey.startsWith(this.SITE_KEY_PREFIX)) {
           const cookieStoreId =
             "firefox-container-" + macConfigs[configKey].userContextId;
           const match = identitiesList.find(
@@ -432,6 +511,7 @@ window.assignManager = {
     },{urls: ["<all_urls>"], types: ["main_frame"]});
 
     this.resetBookmarksMenuItem();
+    this.storageArea.upgradeLegacySiteStoreKeys();
   },
 
   async resetBookmarksMenuItem() {
