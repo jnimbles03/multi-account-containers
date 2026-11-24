@@ -185,9 +185,22 @@ window.assignManager = {
   },
 
   // We return here so the confirm page can load the tab when exempted
+  // Only exempt a tab that is in the container the user chose, otherwise the
+  // exemption would let the site load in whatever container the tab is in.
   async _exemptTab(m) {
-    const pageUrl = m.pageUrl;
-    await this.storageArea.setExempted(pageUrl, m.tabId);
+    if (!m.cookieStoreId) {
+      return false;
+    }
+    let tab;
+    try {
+      tab = await browser.tabs.get(m.tabId);
+    } catch {
+      return false;
+    }
+    if (!tab || tab.cookieStoreId !== m.cookieStoreId) {
+      return false;
+    }
+    this.storageArea.setExempted(m.pageUrl, tab.id);
     return true;
   },
 
@@ -807,7 +820,10 @@ window.assignManager = {
       return this.createTabWrapper(url, cookieStoreId, index, active, openerTabId, groupId);
     } else {
       let confirmUrl = `${loadPage}?url=${this.encodeURLProperty(url)}&cookieStoreId=${cookieStoreId}`;
-      let currentCookieStoreId;
+      // An omitted cookieStoreId makes the confirm tab inherit the opener's
+      // container, so the default container must be passed explicitly.
+      // See reloadPageInDefaultContainer.
+      let currentCookieStoreId = "firefox-default";
       if (currentUserContextId) {
         currentCookieStoreId = backgroundLogic.cookieStoreId(currentUserContextId);
         confirmUrl += `&currentCookieStoreId=${currentCookieStoreId}`;
