@@ -62,7 +62,7 @@ const sync = {
       const allSyncStorage = await this.get();
       const sites = {};
       for (const storageKey of Object.keys(allSyncStorage)) {
-        if (storageKey.includes("siteContainerMap@@_")) {
+        if (assignManager.storageArea.isSiteStoreKey(storageKey)) {
           sites[storageKey] = allSyncStorage[storageKey];
         }
       }
