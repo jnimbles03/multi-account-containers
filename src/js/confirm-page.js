@@ -95,12 +95,40 @@ async function denySubmit(redirectUrl, currentCookieStoreId) {
     });
   }
 
-  await browser.runtime.sendMessage({
+  const targetCookieStoreId = currentCookieStoreId || "firefox-default";
+  if (tab.cookieStoreId === targetCookieStoreId &&
+      await exemptTab(tab.id, redirectUrl, targetCookieStoreId)) {
+    document.location.replace(redirectUrl);
+    return;
+  }
+  await openExemptedInContainer(tab, redirectUrl, targetCookieStoreId);
+}
+
+function exemptTab(tabId, pageUrl, cookieStoreId) {
+  return browser.runtime.sendMessage({
     method: "exemptContainerAssignment",
-    tabId: tab.id,
-    pageUrl: redirectUrl
+    tabId,
+    pageUrl,
+    cookieStoreId
   });
-  document.location.replace(redirectUrl);
+}
+
+// The tab is exempted before it navigates, so the exemption can only ever
+// apply to a tab in the chosen container.
+async function openExemptedInContainer(tab, redirectUrl, cookieStoreId) {
+  const reopenedTab = await browser.tabs.create({
+    index: tab.index + 1,
+    cookieStoreId
+  });
+  if (!await exemptTab(reopenedTab.id, redirectUrl, cookieStoreId)) {
+    await browser.tabs.remove(reopenedTab.id);
+    return;
+  }
+  if (tab.groupId >= 0) {
+    await browser.tabs.group({ groupId: tab.groupId, tabIds: reopenedTab.id });
+  }
+  await browser.tabs.update(reopenedTab.id, { url: redirectUrl });
+  await browser.tabs.remove(tab.id);
 }
 
 load();
