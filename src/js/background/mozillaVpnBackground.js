@@ -115,4 +115,5 @@ const MozillaVPN_Background = {
   },
 };
 
+window.MozillaVPN_Background = MozillaVPN_Background;
 MozillaVPN_Background.init();
