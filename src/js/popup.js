@@ -1457,8 +1457,8 @@ Logic.registerPanel(P_CONTAINER_ASSIGNMENTS, {
       assignmentKeys.forEach((siteKey) => {
         const site = assignments[siteKey];
         const trElement = document.createElement("tr");
-        /* As we don't have the full or correct path the best we can assume is the path is HTTPS and then replace with a broken icon later if it doesn't load.
-           This is pending a better solution for favicons from web extensions */
+        /* As we don't have the full or correct path the best we can assume is the path is HTTPS.
+           The site's favicon is not loaded here: the popup is outside this container. */
         const assumedUrl = `https://${site.hostname}/favicon.ico`;
         const resetSiteCookiesInfo = browser.i18n.getMessage("clearSiteCookiesTooltipInfo");
         const deleteSiteInfo = browser.i18n.getMessage("deleteSiteTooltipInfo");
@@ -1469,7 +1469,7 @@ Logic.registerPanel(P_CONTAINER_ASSIGNMENTS, {
           <img title="${resetSiteCookiesInfo}" class="reset-button reset-assignment" src="/img/refresh-16.svg" />
           <img title="${deleteSiteInfo}" class="trash-button delete-assignment"  src="/img/container-delete.svg" />
         </td>`;
-        trElement.getElementsByClassName("favicon")[0].appendChild(Utils.createFavIconElement(assumedUrl));
+        trElement.getElementsByClassName("favicon")[0].appendChild(Utils.createFavIconElement());
         const deleteButton = trElement.querySelector(".trash-button");
         Utils.addEnterHandler(deleteButton, async () => {
           const userContextId = Logic.currentUserContextId();
