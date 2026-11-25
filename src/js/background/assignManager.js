@@ -192,14 +192,33 @@ window.assignManager = {
   },
 
   async handleProxifiedRequest(requestInfo) {
-    // The following blocks potentially dangerous requests for privacy that come without a tabId
-
-    if(requestInfo.tabId === -1) {
-      return {};
+    // Route by the container the request itself belongs to. Requests without a
+    // tab (e.g. from service workers) still carry it, and their tab may already
+    // be gone. An empty or failed result makes Firefox connect directly, so any
+    // case where the container cannot be determined must fail closed.
+    let cookieStoreId = requestInfo.cookieStoreId;
+    if (!cookieStoreId && requestInfo.tabId !== -1) {
+      try {
+        const tab = await browser.tabs.get(requestInfo.tabId);
+        cookieStoreId = tab.cookieStoreId;
+      } catch {
+        cookieStoreId = undefined;
+      }
     }
 
-    const tab = await browser.tabs.get(requestInfo.tabId);
-    const result = await proxifiedContainers.retrieve(tab.cookieStoreId);
+    let result;
+    try {
+      if (!cookieStoreId) {
+        const proxified = await proxifiedContainers.retrieveAll();
+        if (proxified && proxified.some(entry => entry && entry.proxy)) {
+          return Utils.getBogusProxy();
+        }
+        return {};
+      }
+      result = await proxifiedContainers.retrieve(cookieStoreId);
+    } catch {
+      return Utils.getBogusProxy();
+    }
     if (!result || !result.proxy) {
       return {};
     }

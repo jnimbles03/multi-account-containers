@@ -1,5 +1,3 @@
-/*global getBogusProxy */
-
 const DEFAULT_FAVICON = "/img/blank-favicon.svg";
 
 // eslint-disable-next-line
@@ -54,7 +52,7 @@ const Utils = {
       }
 
       // The only issue with this approach is that if (for some unknown reason) pregeneratedString is not saved, it will result in an infinite loop - but better than a privacy leak!
-      return getBogusProxy();
+      return window.Utils.getBogusProxy();
     }
   },
 
