@@ -5,7 +5,7 @@ async function load() {
   const currentCookieStoreId = searchParams.get("currentCookieStoreId");
   const redirectUrlElement = document.getElementById("redirect-url");
   redirectUrlElement.textContent = redirectUrl;
-  appendFavicon(redirectUrl, redirectUrlElement);
+  appendFavicon(redirectUrlElement);
 
   // Option for staying on the previous container
   document.getElementById("deny").addEventListener("click", (e) => {
@@ -48,11 +48,10 @@ function setDenyButton(currentContainerName) {
   return;
 }
 
-function appendFavicon(pageUrl, redirectUrlElement) {
-  const origin = new URL(pageUrl).origin;
-  const favIconElement = Utils.createFavIconElement(`${origin}/favicon.ico`);
-
-  redirectUrlElement.prepend(favIconElement);
+// The destination must not be contacted until the user picks a container, and
+// then only through tabs.create in that container.
+function appendFavicon(redirectUrlElement) {
+  redirectUrlElement.prepend(Utils.createFavIconElement());
 }
 
 function confirmSubmit(redirectUrl, cookieStoreId) {

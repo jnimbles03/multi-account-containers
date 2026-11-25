@@ -8,10 +8,35 @@ const CONTAINER_ORDER_STORAGE_KEY = "container-order";
 // TODO use export here instead of globals
 const Utils = {
 
-  createFavIconElement(url) {
+  /**
+   * Extension pages run outside the container a site belongs to, so loading
+   * a remote icon from here would contact that site with the wrong cookie
+   * jar. Only icons that need no network request are displayed.
+   *
+   * @param {string} [url]
+   * @returns {boolean}
+   */
+  isLocalImageUrl(url) {
+    if (typeof url !== "string" || url === "") {
+      return false;
+    }
+    let parsed;
+    try {
+      parsed = new URL(url, window.location.href);
+    } catch {
+      return false;
+    }
+    if (parsed.protocol === "data:") {
+      return true;
+    }
+    return parsed.protocol === window.location.protocol &&
+      parsed.host === window.location.host;
+  },
+
+  createFavIconElement(url = DEFAULT_FAVICON) {
     const imageElement = document.createElement("img");
     imageElement.classList.add("icon", "offpage", "menu-icon");
-    imageElement.src = url;
+    imageElement.src = Utils.isLocalImageUrl(url) ? url : DEFAULT_FAVICON;
     const loadListener = (e) => {
       e.target.classList.remove("offpage");
       e.target.removeEventListener("load", loadListener);
