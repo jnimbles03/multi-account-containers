@@ -5,6 +5,8 @@ window.assignManager = {
   MENU_HIDE_ID: "hide-container",
   MENU_MOVE_ID: "move-to-new-window-container",
   OPEN_IN_CONTAINER: "open-bookmark-in-container-tab",
+  MAX_REPLACEMENT_TABS: 3,
+  REPLACEMENT_WINDOW_MS: 10000,
   storageArea: {
     area: browser.storage.local,
     exemptedTabs: {},
@@ -320,8 +322,18 @@ window.assignManager = {
       }
     }
 
+    // A page can navigate itself to new URLs indefinitely; without this limit
+    // every navigation would open (and focus) another tab.
+    const reservation = this._reserveReplacementTab(tab.id, options.url);
+    if (!reservation) {
+      return {
+        cancel: true
+      };
+    }
+
+    let replacementTab;
     if (siteIsolatedReloadInDefault) {
-      this.reloadPageInDefaultContainer(
+      replacementTab = this.reloadPageInDefaultContainer(
         options.url,
         tab.index + 1,
         tab.active,
@@ -329,7 +341,7 @@ window.assignManager = {
         tab.groupId
       );
     } else {
-      this.reloadPageInContainer(
+      replacementTab = this.reloadPageInContainer(
         options.url,
         userContextId,
         siteSettings.userContextId,
@@ -340,6 +352,7 @@ window.assignManager = {
         tab.groupId
       );
     }
+    this._trackReplacementTab(tab.id, reservation, replacementTab);
     this.calculateContextMenu(tab);
 
     /* Removal of existing tabs:
@@ -371,6 +384,77 @@ window.assignManager = {
     return {
       cancel: true,
     };
+  },
+
+  /*
+   * Decides whether the navigation from sourceTabId to url may open a
+   * replacement tab and, if so, reserves it. Must stay synchronous so that
+   * concurrent onBeforeRequest calls cannot both pass the check.
+   *
+   * Per source tab: no new tab while one it opened for the same site is still
+   * open, at most MAX_REPLACEMENT_TABS open at once, and at most
+   * MAX_REPLACEMENT_TABS created per REPLACEMENT_WINDOW_MS. This state is only
+   * released by tabs.onRemoved, never by webRequest events.
+   */
+  _reserveReplacementTab(sourceTabId, url) {
+    const now = Date.now();
+    const siteStoreKey = this.storageArea.getSiteStoreKey(url);
+    if (!this.replacementTabs[sourceTabId]) {
+      this.replacementTabs[sourceTabId] = {
+        createdAt: [],
+        open: new Set()
+      };
+    }
+    const record = this.replacementTabs[sourceTabId];
+    record.createdAt = record.createdAt.filter(
+      (createdAt) => now - createdAt < this.REPLACEMENT_WINDOW_MS
+    );
+    for (const reservation of record.open) {
+      if (reservation.siteStoreKey === siteStoreKey) {
+        return null;
+      }
+    }
+    if (record.open.size >= this.MAX_REPLACEMENT_TABS
+        || record.createdAt.length >= this.MAX_REPLACEMENT_TABS) {
+      return null;
+    }
+    const reservation = {
+      siteStoreKey,
+      tabId: null
+    };
+    record.open.add(reservation);
+    record.createdAt.push(now);
+    return reservation;
+  },
+
+  _trackReplacementTab(sourceTabId, reservation, replacementTab) {
+    const release = () => {
+      const record = this.replacementTabs[sourceTabId];
+      if (record) {
+        record.open.delete(reservation);
+      }
+    };
+    Promise.resolve(replacementTab).then((newTab) => {
+      if (newTab && typeof newTab.id === "number") {
+        reservation.tabId = newTab.id;
+      } else {
+        release();
+      }
+    }).catch((e) => {
+      release();
+      throw e;
+    });
+  },
+
+  _onTabRemoved(tabId) {
+    delete this.replacementTabs[tabId];
+    for (const record of Object.values(this.replacementTabs)) {
+      for (const reservation of record.open) {
+        if (reservation.tabId === tabId) {
+          record.open.delete(reservation);
+        }
+      }
+    }
   },
 
   async _maybeSiteIsolatedReloadInDefault(siteSettings, tab) {
@@ -415,6 +499,10 @@ window.assignManager = {
     // Before a request is handled by the browser we decide if we should
     // route through a different container
     this.canceledRequests = {};
+    this.replacementTabs = {};
+    browser.tabs.onRemoved.addListener((tabId) => {
+      this._onTabRemoved(tabId);
+    });
     browser.webRequest.onBeforeRequest.addListener((options) => {
       return this.onBeforeRequest(options);
     },{urls: ["<all_urls>"], types: ["main_frame"]}, ["blocking"]);
@@ -732,7 +820,7 @@ window.assignManager = {
    * @param {boolean} active
    * @param {number} [openerTabId]
    * @param {number} [groupId]
-   * @returns {void}
+   * @returns {Promise<Tab>}
    */
   reloadPageInDefaultContainer(url, index, active, openerTabId, groupId) {
     // To create a new tab in the default container, it is easiest just to omit the
@@ -753,7 +841,7 @@ window.assignManager = {
     // does not automatically return to the original opener tab. To get this desired behaviour,
     // we MUST specify the openerTabId when creating the new tab.
     const cookieStoreId = "firefox-default";
-    this.createTabWrapper(url, cookieStoreId, index, active, openerTabId, groupId);
+    return this.createTabWrapper(url, cookieStoreId, index, active, openerTabId, groupId);
   },
 
 
@@ -819,9 +907,10 @@ window.assignManager = {
         active,
         openerTabId,
         groupId
-      ).then(() => {
+      ).then((newTab) => {
         // We don't want to sync this URL ever nor clutter the users history
         browser.history.deleteUrl({url: confirmUrl});
+        return newTab;
       }).catch((e) => {
         throw e;
       });
