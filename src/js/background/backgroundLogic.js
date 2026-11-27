@@ -158,14 +158,16 @@ const backgroundLogic = {
     return extensionInfo;
   },
 
-  // Remove container data (cookies, localStorage and cache)
+  // Remove container data (cookies, localStorage and IndexedDB).
+  // These are the only data types Firefox can remove for a single
+  // cookieStoreId; requesting any other type rejects the whole call.
   async deleteContainerDataOnly(userContextId) {
-    await browser.browsingData.removeCookies({
+    await browser.browsingData.remove({
       cookieStoreId: this.cookieStoreId(userContextId)
-    });
-
-    await browser.browsingData.removeLocalStorage({
-      cookieStoreId: this.cookieStoreId(userContextId)
+    }, {
+      cookies: true,
+      indexedDB: true,
+      localStorage: true
     });
 
     return {done: true, userContextId};
