@@ -141,10 +141,10 @@ const Utils = {
     });
   },
 
-  resetCookiesForSite(pageUrl, cookieStoreId) {
+  resetCookiesForSite(siteStoreKey, cookieStoreId) {
     return browser.runtime.sendMessage({ 
       method: "resetCookiesForSite", 
-      pageUrl,
+      siteStoreKey,
       cookieStoreId,
     });
   },

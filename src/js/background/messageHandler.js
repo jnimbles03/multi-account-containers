@@ -49,7 +49,7 @@ const messageHandler = {
         response = assignManager._setOrRemoveAssignment(m.tabId, m.url, m.userContextId, m.value);
         break;
       case "resetCookiesForSite":
-        response = assignManager._resetCookiesForSite(m.pageUrl, m.cookieStoreId);
+        response = assignManager._resetCookiesForSite(m.siteStoreKey, m.cookieStoreId);
         break;
       case "sortTabs":
         backgroundLogic.sortTabs();
