@@ -1486,7 +1486,7 @@ Logic.registerPanel(P_CONTAINER_ASSIGNMENTS, {
           if (!granted) {
             return;
           }
-          const result = await Utils.resetCookiesForSite(site.hostname, cookieStoreId);
+          const result = await Utils.resetCookiesForSite(siteKey, cookieStoreId);
           if (result === true) {
             Logic.notify({messageId: "cookiesClearedSuccess", placeholders: [site.hostname]});
           } else {

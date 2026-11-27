@@ -41,6 +41,25 @@ window.assignManager = {
       return this.exemptedTabs[siteStoreKey].includes(tabId);
     },
 
+    // The store key appends non-default port digits to the hostname with no
+    // separator, so it cannot be turned back into a hostname reliably.
+    getSiteHostname(siteStoreKey, site) {
+      const label = siteStoreKey.replace(/^siteContainerMap@@_/, "");
+      const hostname = site && site.siteHostname;
+      if (hostname) {
+        if (typeof hostname !== "string" || !label.startsWith(hostname)) {
+          return null;
+        }
+        return /^\d*$/.test(label.slice(hostname.length)) ? hostname : null;
+      }
+      // Assignments saved before siteHostname existed: only a label with no
+      // trailing digits is unambiguously the hostname.
+      if (!label || /\d$/.test(label)) {
+        return null;
+      }
+      return label;
+    },
+
     get(pageUrlorUrlKey) {
       const siteStoreKey = this.getSiteStoreKey(pageUrlorUrlKey);
       return this.getByUrlKey(siteStoreKey);
@@ -76,6 +95,9 @@ window.assignManager = {
         exemptedTabIds.forEach((tabId) => {
           this.setExempted(pageUrlorUrlKey, tabId);
         });
+      }
+      if (!pageUrlorUrlKey.includes("siteContainerMap@@_")) {
+        data.siteHostname = new window.URL(pageUrlorUrlKey).hostname;
       }
       data.identityMacAddonUUID =
         await identityState.lookupMACaddonUUID(data.userContextId);
@@ -577,11 +599,24 @@ window.assignManager = {
     return true;
   },
 
-  async _resetCookiesForSite(hostname, cookieStoreId) {
-    const hostNameTruncated = hostname.replace(/^www\./, ""); // Remove "www." from the hostname
+  async _resetCookiesForSite(siteStoreKey, cookieStoreId) {
+    let urlKey;
+    try {
+      urlKey = this.storageArea.getSiteStoreKey(siteStoreKey);
+    } catch {
+      return false;
+    }
+    const site = await this.storageArea.getByUrlKey(urlKey);
+    if (!site || backgroundLogic.cookieStoreId(site.userContextId) !== cookieStoreId) {
+      return false;
+    }
+    const hostname = this.storageArea.getSiteHostname(urlKey, site);
+    if (!hostname) {
+      return false;
+    }
     await browser.browsingData.removeCookies({
-      cookieStoreId: cookieStoreId,
-      hostnames: [hostNameTruncated] // This does not remove cookies from associated domains. To remove all cookies, we have a container storage removal option.
+      cookieStoreId,
+      hostnames: [hostname] // This does not remove cookies from associated domains. To remove all cookies, we have a container storage removal option.
     });
 
     return true;
